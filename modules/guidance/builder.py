@@ -113,6 +113,7 @@ class MinimalPatchForensics:
 def build_guidance_controller(
     *,
     device: torch.device,
+    source_image_path: str,
     target_image_path: str,
     total_steps: int = 50,
     vit_weight_path: str,
@@ -147,8 +148,8 @@ def build_guidance_controller(
         input_size=(128, 128),
     )
 
-    target_embed = arcface_model.inference(target_image_path)
-    target_seg = face_parser.inference(target_image_path)
+    target_embed = arcface_model.inference(source_image_path)   # identity from source
+    target_seg = face_parser.inference(target_image_path)       # pose/shape from target
 
     return GuidanceController(
         arcface_model=arcface_model,

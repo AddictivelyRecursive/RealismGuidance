@@ -217,9 +217,10 @@ def write_sampling_config(logdir: str, opt) -> None:
         yaml.dump(vars(opt), f, default_flow_style=False)
 
 
-def build_pipeline(model, opt, target_image_path: str):
+def build_pipeline(model, opt, source_image_path: str, target_image_path: str):
     guidance_controller = build_guidance_controller(
         device=model.device,
+        source_image_path=source_image_path,
         target_image_path=target_image_path,
         total_steps=opt.custom_steps,
         vit_weight_path=opt.vit_weight_path,
@@ -350,7 +351,7 @@ def run_batch_tests(
         os.makedirs(pair_imglogdir, exist_ok=True)
         os.makedirs(pair_numpylogdir, exist_ok=True)
 
-        pipeline = build_pipeline(model, opt, target_image_path=target_path)
+        pipeline = build_pipeline(model, opt, target_image_path=target_path,source_image_path=source_path)
 
         print(f"Running for {source_image} -> {target_image} (mask: {merged_mask})")
 
@@ -482,6 +483,7 @@ def main():
     pipeline = build_pipeline(
         model=model,
         opt=opt,
+        source_image_path=opt.init_image,
         target_image_path=opt.target_image,
     )
 

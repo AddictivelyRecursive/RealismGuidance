@@ -4,7 +4,7 @@ python scripts/generate_masks.py \
   --target_dir data/target \
   --output_dir data/
 
-CUDA_VISIBLE_DEVICES="0" python scripts/run_face_swap.py \
+RG_ENABLE_ARC=1 RG_ENABLE_SEG=1 RG_ENABLE_PATCH=1 CUDA_VISIBLE_DEVICES="0" python scripts/run_face_swap.py \
   --resume "checkpoints/ldm/model0.ckpt" \
   --config external/ldm/configs/latent-diffusion/celeba-ldm-vq-4.yaml \
   --init_image "data/source/01463.jpg" \

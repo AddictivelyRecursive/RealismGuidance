@@ -279,6 +279,7 @@ class DDIMSampler:
                 c=cond,
                 t=ts,
                 index=index,
+                sample_step=i,
                 repeat_noise=False,
                 use_original_steps=ddim_use_original_steps,
                 quantize_denoised=quantize_denoised,
@@ -326,6 +327,7 @@ class DDIMSampler:
         a_t,
         sqrt_one_minus_at,
         quantize_denoised: bool = False,
+        sample_step: int = 0,
     ):
         if self.guidance_controller is None:
             raise RuntimeError("guidance_controller must be provided for conditional guidance")
@@ -346,7 +348,7 @@ class DDIMSampler:
 
             total_loss, loss_dict = self.guidance_controller.compute_losses(
                 x_in=x_in,
-                step=t[0].item(),
+                step=sample_step,
             )
 
             # Diagnostics
@@ -395,6 +397,7 @@ class DDIMSampler:
         c,
         t,
         index: int,
+        sample_step: int,
         repeat_noise: bool = False,
         use_original_steps: bool = False,
         quantize_denoised: bool = False,
@@ -441,6 +444,7 @@ class DDIMSampler:
                 a_t=a_t,
                 sqrt_one_minus_at=sqrt_one_minus_at,
                 quantize_denoised=quantize_denoised,
+                sample_step=sample_step,
             )
         else:
             if unconditional_conditioning is None or unconditional_guidance_scale == 1.0:

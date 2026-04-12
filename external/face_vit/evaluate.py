@@ -80,7 +80,7 @@ class ViTWrapper:
         x = torch.cat([x,x],dim=0)  # ViT model quirk: needs batch size >=2
         embedding, _ = self.model(x, fea=True)
         embedding = F.normalize(embedding, p=2, dim=1) # take only the first
-        return embedding  # shape: [1, 1024]
+        return embedding[:1]  # shape: [1, 1024]
 
     # -----------------------------------------------------------------
     # def arc_embedding(self, img_tensor):
@@ -103,19 +103,25 @@ class ViTWrapper:
         Expects tensor in range [-1,1], shape [B, 1, H, W] or [B, 3, H, W].
         If RGB input is given, it's converted to grayscale before embedding.
         """
-        if img_tensor.ndim == 3:
-            img_tensor = img_tensor.unsqueeze(0)  # [C,H,W] → [1,C,H,W]
-            
-            # If RGB, convert to grayscale using luminance-preserving weights
-        if img_tensor.shape[1] == 3:
-            r, g, b = img_tensor[:, 0:1, :, :], img_tensor[:, 1:2, :, :], img_tensor[:, 2:3, :, :]
-            img_tensor = 0.2989 * r + 0.5870 * g + 0.1140 * b  # grayscale conversion
+        orig_b = img_tensor.shape[0]
+        img_tensor = img_tensor.clamp(-1, 1)
 
-        # Resize to model’s expected input size
-        img_tensor = F.interpolate(img_tensor, size=(128, 128), mode='bilinear', align_corners=False)
-        
-        img_tensor = torch.cat([img_tensor,img_tensor],dim=0)
-        # Get embedding
+        if img_tensor.shape[1] == 3:
+            r = img_tensor[:, 0:1]
+            g = img_tensor[:, 1:2]
+            b = img_tensor[:, 2:3]
+            img_tensor = 0.2989 * r + 0.5870 * g + 0.1140 * b
+
+        img_tensor = F.interpolate(
+            img_tensor,
+            size=(128, 128),
+            mode="bilinear",
+            align_corners=False,
+        )
+
+        img_tensor = torch.cat([img_tensor, img_tensor], dim=0)
+
         embedding, _ = self.model(img_tensor.to(self.device), fea=True)
         embedding = F.normalize(embedding, p=2, dim=1)
-        return embedding
+
+        return embedding[:orig_b]
