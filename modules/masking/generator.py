@@ -13,6 +13,8 @@ from PIL import Image
 from imutils import face_utils
 from tqdm import tqdm
 
+cv2.setNumThreads(1)
+cv2.ocl.setUseOpenCL(False)
 
 @dataclass
 class ImagePair:
@@ -44,7 +46,7 @@ class LandmarkMaskGenerator:
         output_size: int = 256,
         mask_blur_kernel: int = 15,
         crop_margin: float = 0.35,
-        detector_upsample_levels: int = 2,
+        detector_upsample_levels: int = 0,
     ):
         self.detector = dlib.get_frontal_face_detector()
         self.landmark_predictor = dlib.shape_predictor(predictor_path)
@@ -100,20 +102,30 @@ class LandmarkMaskGenerator:
     ) -> Tuple[dlib.rectangle, np.ndarray]:
         gray = cv2.cvtColor(image_bgr, cv2.COLOR_BGR2GRAY)
 
-        faces = []
+        detected = None
         for level in range(self.detector_upsample_levels + 1):
             faces = self.detector(gray, level)
             if len(faces) > 0:
+                detected = faces
                 break
 
-        if len(faces) == 0:
+        if detected is None or len(detected) == 0:
             raise RuntimeError("No face detected.")
 
-        face = max(faces, key=lambda r: r.width() * r.height())
-        shape = self.landmark_predictor(image_bgr, face)
-        landmarks = face_utils.shape_to_np(shape)
+        best_face = detected[0]
+        best_area = max(1, best_face.width()) * max(1, best_face.height())
 
-        return face, landmarks
+        for i in range(1, len(detected)):
+            r = detected[i]
+            area = max(1, r.width()) * max(1, r.height())
+            if area > best_area:
+                best_face = r
+                best_area = area
+
+        shape = self.landmark_predictor(gray, best_face)
+        landmarks = np.array([[shape.part(i).x, shape.part(i).y] for i in range(68)], dtype=np.int32)
+
+        return best_face, landmarks
 
     def crop_around_face(
         self,
@@ -154,16 +166,54 @@ class LandmarkMaskGenerator:
         image_path: str | Path,
     ) -> CropResult:
         image_bgr = self.load_image_bgr(image_path)
-        face_rect, _ = self.detect_largest_face_and_landmarks(image_bgr)
+        face_rect, landmarks = self.detect_largest_face_and_landmarks(image_bgr)
 
-        cropped = self.crop_around_face(image_bgr, face_rect)
-        cropped_face_rect, cropped_landmarks = self.detect_largest_face_and_landmarks(cropped)
+        h, w = image_bgr.shape[:2]
+
+        x1 = face_rect.left()
+        y1 = face_rect.top()
+        x2 = face_rect.right()
+        y2 = face_rect.bottom()
+
+        face_w = x2 - x1
+        face_h = y2 - y1
+
+        margin_x = int(face_w * self.crop_margin)
+        margin_y = int(face_h * self.crop_margin)
+
+        crop_x1 = max(0, x1 - margin_x)
+        crop_y1 = max(0, y1 - margin_y)
+        crop_x2 = min(w, x2 + margin_x)
+        crop_y2 = min(h, y2 + margin_y)
+
+        cropped = image_bgr[crop_y1:crop_y2, crop_x1:crop_x2]
+        if cropped.size == 0:
+            raise RuntimeError("Computed crop is empty.")
+
+        # shift landmarks into crop coordinate system
+        cropped_landmarks = landmarks.copy()
+        cropped_landmarks[:, 0] -= crop_x1
+        cropped_landmarks[:, 1] -= crop_y1
+
+        old_h, old_w = cropped.shape[:2]
+        cropped = cv2.resize(
+            cropped,
+            (self.output_size, self.output_size),
+            interpolation=cv2.INTER_CUBIC,
+        )
+
+        scale_x = self.output_size / old_w
+        scale_y = self.output_size / old_h
+        cropped_landmarks = cropped_landmarks.astype(np.float32)
+        cropped_landmarks[:, 0] *= scale_x
+        cropped_landmarks[:, 1] *= scale_y
+        cropped_landmarks = cropped_landmarks.astype(np.int32)
 
         bbox = (
-            cropped_face_rect.left(),
-            cropped_face_rect.top(),
-            cropped_face_rect.right(),
-            cropped_face_rect.bottom(),
+            int((x1 - crop_x1) * scale_x),
+            int((y1 - crop_y1) * scale_y),
+            int((x2 - crop_x1) * scale_x),
+            int((y2 - crop_y1) * scale_y),
         )
 
         return CropResult(
