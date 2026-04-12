@@ -9,6 +9,7 @@ conda install tqdm
 conda install opencv
 conda install scipy
 conda install libstdcxx-ng
+pip install imutils
 
 cd external
 git clone https://github.com/CompVis/taming-transformers.git taming

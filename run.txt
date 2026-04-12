@@ -1,8 +1,8 @@
 python scripts/generate_masks.py \
   --csv data/image_pairs.csv \
-  --source_dir data/portrait/source \
-  --target_dir data/portrait/target \
-  --output_dir data/portrait
+  --source_dir data/source \
+  --target_dir data/target \
+  --output_dir data/
 
 CUDA_VISIBLE_DEVICES="0" python scripts/run_face_swap.py \
   --resume "checkpoints/ldm_celeba256_model0.ckpt" \
