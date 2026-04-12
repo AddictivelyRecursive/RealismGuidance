@@ -1,15 +1,19 @@
+from __future__ import annotations
+
 import sys
 import os
 
 ROOT = os.getcwd()
+sys.path.append(ROOT)
 
 sys.path.extend([
-    os.path.join(ROOT, "external/ldm_repo"),
+    os.path.join(ROOT, "external"),
+    os.path.join(ROOT, "external/taming"),
+    os.path.join(ROOT, "external/ldm"),
     os.path.join(ROOT, "external/face_vit"),
     os.path.join(ROOT, "external/face_parser"),
     os.path.join(ROOT, "external/patch_forensics"),
 ])
-from __future__ import annotations
 
 import argparse
 import csv
@@ -107,6 +111,11 @@ def get_parser() -> argparse.ArgumentParser:
         type=str,
         default=None,
         help="Path to face mask.",
+    )
+    parser.add_argument(
+        "--config",
+        type=str,
+        default="external/ldm/configs/latent-diffusion/celeba256-ldm-vq-4.yaml",
     )
 
     # Guidance checkpoint paths
@@ -357,7 +366,9 @@ def main():
             "Clean rewrite currently supports DDIM path only. Vanilla path can be added separately."
         )
 
-    ckpt, base_logdir, base_configs = resolve_resume_paths(opt.resume)
+    ckpt = opt.resume
+    base_configs = [opt.config]
+    base_logdir = os.path.dirname(opt.resume)
 
     configs = [OmegaConf.load(cfg) for cfg in base_configs]
     cli = OmegaConf.from_dotlist(unknown)

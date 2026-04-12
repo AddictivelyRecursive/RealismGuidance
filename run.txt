@@ -5,7 +5,8 @@ python scripts/generate_masks.py \
   --output_dir data/portrait
 
 CUDA_VISIBLE_DEVICES="0" python scripts/run_face_swap.py \
-  --resume models/ldm/celeba256/model0.ckpt \
+  --resume "checkpoints/ldm_celeba256_model0.ckpt" \
+  --config external/ldm/configs/latent-diffusion/celeba-ldm-vq-4.yaml \
   --init_image "/path/to/source.jpg" \
   --target_image "/path/to/target.jpg" \
   --mask "/path/to/mask.png" \

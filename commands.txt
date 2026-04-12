@@ -1,0 +1,4 @@
+ssh athena 
+source ~/anaconda3/etc/profile.d/conda.sh
+conda activate mehulenv
+cd mehul/RealismGuidance
