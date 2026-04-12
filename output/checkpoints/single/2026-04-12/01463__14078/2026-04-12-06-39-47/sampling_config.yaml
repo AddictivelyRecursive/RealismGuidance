@@ -3,14 +3,14 @@ config: external/ldm/configs/latent-diffusion/celeba-ldm-vq-4.yaml
 custom_steps: 50
 eta: 1.0
 face_parser_ckpt_path: checkpoints/79999_iter.pth
-init_image: data/source/00683.jpg
+init_image: data/source/01463.jpg
 logdir: output
-mask: data/mask/merged/00683__07722.png
+mask: data/mask/target/01463__14078.png
 n_samples: 8
 patch_forensics_ckpt_path: checkpoints/patch_forensics_gp5-faceforensics-f2f_seed0_xception_block3_constant_p10/bestval_net_D.pth
 resume: checkpoints/ldm_celeba256_model0.ckpt
 run_tests: false
-target_image: data/target/00451.jpg
+target_image: data/target/14078.jpg
 test_base_dir: null
 test_pairs_csv: null
 vanilla_sample: false

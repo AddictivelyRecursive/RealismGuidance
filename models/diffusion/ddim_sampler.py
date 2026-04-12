@@ -16,6 +16,7 @@ The main cleanup is architectural:
 
 from __future__ import annotations
 
+import os
 from typing import Any, Dict, Optional, Tuple
 
 import numpy as np
@@ -386,7 +387,7 @@ class DDIMSampler:
                 loss_dict["seg_loss"],
                 loss_dict["patch_loss"],
             )
-
+            
     @torch.no_grad()
     def p_sample_ddim(
         self,
@@ -405,8 +406,10 @@ class DDIMSampler:
         unconditional_conditioning=None,
         x0=None,
     ):
+        import os
+
         batch_size, *_, device = *x.shape, x.device
-        conditional_guidance = True
+        conditional_guidance = os.getenv("RG_DISABLE_GUIDANCE", "0") != "1"
 
         alphas = self.model.alphas_cumprod if use_original_steps else self.ddim_alphas
         alphas_prev = (
@@ -427,9 +430,7 @@ class DDIMSampler:
         a_prev = torch.full((batch_size, 1, 1, 1), alphas_prev[index], device=device)
         sigma_t = torch.full((batch_size, 1, 1, 1), sigmas[index], device=device)
         sqrt_one_minus_at = torch.full(
-            (batch_size, 1, 1, 1),
-            sqrt_one_minus_alphas[index],
-            device=device,
+            (batch_size, 1, 1, 1), sqrt_one_minus_alphas[index], device=device,
         )
 
         if conditional_guidance:
@@ -450,6 +451,7 @@ class DDIMSampler:
                 c_in = torch.cat([unconditional_conditioning, c])
                 e_t_uncond, e_t = self.model.apply_model(x_in, t_in, c_in).chunk(2)
                 e_t = e_t_uncond + unconditional_guidance_scale * (e_t - e_t_uncond)
+
             loss = (
                 torch.tensor(0.0, device=device),
                 torch.tensor(0.0, device=device),
@@ -457,14 +459,13 @@ class DDIMSampler:
             )
 
         pred_x0 = (x - sqrt_one_minus_at * e_t) / a_t.sqrt()
+
         if quantize_denoised:
             pred_x0, _, *_ = self.model.first_stage_model.quantize(pred_x0)
 
         dir_xt = (1.0 - a_prev - sigma_t**2).sqrt() * e_t
         noise = noise_like(x.shape, device, repeat_noise) * temperature
-
         x_prev = a_prev.sqrt() * pred_x0 + dir_xt + noise * sigma_t
 
-        if conditional_guidance:
-            return x_prev, pred_x0, loss
-        return x_prev, pred_x0
+        return x_prev, pred_x0, loss
+    

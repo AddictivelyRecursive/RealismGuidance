@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import os
 from typing import Dict, Tuple
 
 import torch
@@ -81,6 +82,17 @@ class GuidanceController:
         patch_loss = torch.tensor(0.0, device=device)
 
         arc_guidance, seg_guidance, patch_guidance = self._compute_guidance_weights(step)
+        
+        arc_enabled = os.getenv("RG_ENABLE_ARC", "1") == "1"
+        seg_enabled = os.getenv("RG_ENABLE_SEG", "1") == "1"
+        patch_enabled = os.getenv("RG_ENABLE_PATCH", "1") == "1"
+
+        if not arc_enabled:
+            arc_guidance = 0.0
+        if not seg_enabled:
+            seg_guidance = 0.0
+        if not patch_enabled:
+            patch_guidance = 0.0
 
         # ---------------- ArcFace loss ----------------
         x_arc = self.arcface_model.arc_embedding(x_in)
