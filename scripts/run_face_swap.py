@@ -183,9 +183,24 @@ def resolve_resume_paths(resume_path: str):
     return ckpt, logdir, config_paths
 
 
-def build_output_dirs(base_logdir: str, global_step: Optional[int], timestamp: str):
-    global_step_str = "00000000" if global_step is None else f"{global_step:08d}"
-    run_logdir = os.path.join(base_logdir, "samples", global_step_str, timestamp)
+def build_output_dirs(
+    base_logdir: str,
+    timestamp: str,
+    *,
+    run_tests: bool,
+    init_image_path: Optional[str] = None,
+    target_image_path: Optional[str] = None,
+):
+    date_str = timestamp[:10]
+
+    if run_tests:
+        run_logdir = os.path.join(base_logdir, "batch", date_str, timestamp)
+    else:
+        src_name = os.path.splitext(os.path.basename(init_image_path))[0]
+        tgt_name = os.path.splitext(os.path.basename(target_image_path))[0]
+        pair_name = f"{src_name}__{tgt_name}"
+        run_logdir = os.path.join(base_logdir, "single", date_str, pair_name, timestamp)
+
     imglogdir = os.path.join(run_logdir, "img")
     numpylogdir = os.path.join(run_logdir, "numpy")
 
@@ -394,9 +409,11 @@ def main():
 
     run_logdir, imglogdir, numpylogdir = build_output_dirs(
         base_logdir=base_logdir,
-        global_step=global_step,
         timestamp=now,
-    )
+        run_tests=opt.run_tests,
+        init_image_path=opt.init_image,
+        target_image_path=opt.target_image,
+    )    
 
     print(run_logdir)
     print(75 * "=")

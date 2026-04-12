@@ -58,7 +58,7 @@ class GuidanceController:
         patch_guidance = 0.12 * (1 - t_frac)
 
         return arc_guidance, seg_guidance, patch_guidance
-
+    
     def compute_losses(
         self,
         x_in: torch.Tensor,

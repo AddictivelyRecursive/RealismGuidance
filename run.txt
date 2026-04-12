@@ -7,13 +7,13 @@ python scripts/generate_masks.py \
 CUDA_VISIBLE_DEVICES="0" python scripts/run_face_swap.py \
   --resume "checkpoints/ldm_celeba256_model0.ckpt" \
   --config external/ldm/configs/latent-diffusion/celeba-ldm-vq-4.yaml \
-  --init_image "/path/to/source.jpg" \
-  --target_image "/path/to/target.jpg" \
-  --mask "/path/to/mask.png" \
+  --init_image "data/source/00683.jpg" \
+  --target_image "data/target/00451.jpg" \
+  --mask "data/mask/merged/00683__07722.png" \
   --batch_size 1 \
   --custom_steps 50 \
   --n_samples 8 \
   --logdir output \
-  --vit_weight_path "checkpoints\ViT-face_webface_arcface_resnet18_gray_depth_1_head_2_lr_1e-5_fc1024_dropout_0_LFW-20250926T190632Z-1-001\best.pth" \
-  --face_parser_ckpt_path "checkpoints\79999_iter.pth" \
-  --patch_forensics_ckpt_path "checkpoints\gp5-faceforensics-f2f_seed0_xception_block3_constant_p10\bestval_net_D.pth"
+  --vit_weight_path "checkpoints/ViT-face_webface_arcface_resnet18_gray_depth_1_head_2_lr_1e-5_fc1024_dropout_0_LFW-20250926T190632Z-1-001/best.pth" \
+  --face_parser_ckpt_path "checkpoints/79999_iter.pth" \
+  --patch_forensics_ckpt_path "checkpoints/patch_forensics_gp5-faceforensics-f2f_seed0_xception_block3_constant_p10/bestval_net_D.pth"

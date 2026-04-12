@@ -330,31 +330,62 @@ class DDIMSampler:
             raise RuntimeError("guidance_controller must be provided for conditional guidance")
 
         with torch.enable_grad():
-            x = x.detach().requires_grad_()
-            e_t = self.model.apply_model(x, t, c)
+            x = x.detach().requires_grad_(True)
 
+            e_t = self.model.apply_model(x, t, c)
             pred_x0 = (x - sqrt_one_minus_at * e_t) / a_t.sqrt()
+
             if quantize_denoised:
                 pred_x0, _, *_ = self.model.first_stage_model.quantize(pred_x0)
 
-            # preserve original logic exactly
             fac = self.sqrt_one_minus_alphas_cumprod[t[0].item()]
             x_in = pred_x0 * fac + x * (1 - fac)
             x_in = self.model.decode_first_stage(x_in)
+            # print("decoded x_in requires_grad:", x_in.requires_grad)
 
             total_loss, loss_dict = self.guidance_controller.compute_losses(
                 x_in=x_in,
                 step=t[0].item(),
             )
 
-        grad = -torch.autograd.grad(total_loss, x)[0]
-        e_t = e_t - sqrt_one_minus_at * grad
+            # Diagnostics
+            if not x.requires_grad:
+                raise RuntimeError("x does not require grad in cond_fn")
+            if not x_in.requires_grad:
+                raise RuntimeError("Decoded x_in is detached from graph")
+            if not total_loss.requires_grad:
+                raise RuntimeError(
+                    f"total_loss is detached. "
+                    f"arc={loss_dict['arc_loss'].requires_grad}, "
+                    f"seg={loss_dict['seg_loss'].requires_grad}, "
+                    f"patch={loss_dict['patch_loss'].requires_grad}"
+                )
 
-        return e_t, (
-            loss_dict["arc_loss"],
-            loss_dict["seg_loss"],
-            loss_dict["patch_loss"],
-        )
+            grad = torch.autograd.grad(
+                total_loss,
+                x,
+                retain_graph=False,
+                create_graph=False,
+                allow_unused=True,
+            )[0]
+
+            if grad is None:
+                raise RuntimeError(
+                    f"Guidance gradient is None. "
+                    f"arc={loss_dict['arc_loss'].requires_grad}, "
+                    f"seg={loss_dict['seg_loss'].requires_grad}, "
+                    f"patch={loss_dict['patch_loss'].requires_grad}, "
+                    f"x_in.requires_grad={x_in.requires_grad}, "
+                    f"total_loss.requires_grad={total_loss.requires_grad}"
+                )
+
+            e_t = e_t - sqrt_one_minus_at * grad
+
+            return e_t, (
+                loss_dict["arc_loss"],
+                loss_dict["seg_loss"],
+                loss_dict["patch_loss"],
+            )
 
     @torch.no_grad()
     def p_sample_ddim(
