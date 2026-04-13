@@ -13,7 +13,8 @@ sys.path.extend([
     os.path.join(ROOT, "external/ldm"),
     os.path.join(ROOT, "external/face_vit"),
     os.path.join(ROOT, "external/face_parser"),
-    os.path.join(ROOT, "external/patch_forensics"),
+    os.path.join(ROOT, "external/MST-plus-plus"),
+    # os.path.join(ROOT, "external/patch_forensics"),
 ])
 
 import argparse
@@ -132,11 +133,38 @@ def get_parser() -> argparse.ArgumentParser:
         required=True,
         help="Path to face parser checkpoint.",
     )
+    # parser.add_argument(
+    #     "--patch_forensics_ckpt_path",
+    #     type=str,
+    #     required=True,
+    #     help="Path to patch-forensics discriminator checkpoint.",
+    # )
+    
     parser.add_argument(
-        "--patch_forensics_ckpt_path",
+        "--mstpp_ckpt_path",
         type=str,
         required=True,
-        help="Path to patch-forensics discriminator checkpoint.",
+        help="Path to pretrained MST++ checkpoint.",
+    )
+    
+    # HSI guidance settings
+    parser.add_argument(
+        "--hsi_curv_coeff",
+        type=float,
+        default=1.0,
+        help="Coefficient for spectral curvature loss.",
+    )
+    parser.add_argument(
+        "--hsi_edge_coeff",
+        type=float,
+        default=0.25,
+        help="Coefficient for inter-band edge consistency loss.",
+    )
+    parser.add_argument(
+        "--hsi_interval",
+        type=int,
+        default=2,
+        help="Compute HSI guidance every N denoising steps.",
     )
 
     # Batch-test dataset paths
@@ -225,7 +253,11 @@ def build_pipeline(model, opt, source_image_path: str, target_image_path: str):
         total_steps=opt.custom_steps,
         vit_weight_path=opt.vit_weight_path,
         face_parser_ckpt_path=opt.face_parser_ckpt_path,
-        patch_forensics_ckpt_path=opt.patch_forensics_ckpt_path,
+        # patch_forensics_ckpt_path=opt.patch_forensics_ckpt_path,
+        mstpp_ckpt_path=opt.mstpp_ckpt_path,
+        hsi_curv_coeff=opt.hsi_curv_coeff,
+        hsi_edge_coeff=opt.hsi_edge_coeff,
+        hsi_interval=opt.hsi_interval,
     )
 
     sampler = DDIMSampler(

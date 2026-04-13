@@ -293,9 +293,17 @@ class DDIMSampler:
             )
             last_loss_tuple = loss_tuple
 
-            arc_loss, seg_loss, patch_loss = loss_tuple
+            # arc_loss, seg_loss, patch_loss = loss_tuple
+            # progress_bar.set_description(
+            #     f"Arc Loss: {arc_loss}, Seg Loss: {seg_loss}, Patch Loss: {patch_loss}"
+            # )
+            arc_loss, seg_loss, hsi_loss, curv_loss, edge_loss = loss_tuple
             progress_bar.set_description(
-                f"Arc Loss: {arc_loss}, Seg Loss: {seg_loss}, Patch Loss: {patch_loss}"
+                f"Arc: {float(arc_loss):.4f}, "
+                f"Seg: {float(seg_loss):.4f}, "
+                f"HSI: {float(hsi_loss):.4f}, "
+                f"Curv: {float(curv_loss):.4f}, "
+                f"Edge: {float(edge_loss):.4f}"
             )
 
             # pixel-level blending
@@ -361,7 +369,7 @@ class DDIMSampler:
                     f"total_loss is detached. "
                     f"arc={loss_dict['arc_loss'].requires_grad}, "
                     f"seg={loss_dict['seg_loss'].requires_grad}, "
-                    f"patch={loss_dict['patch_loss'].requires_grad}"
+                    f"hsi={loss_dict['hsi_loss'].requires_grad}"
                 )
 
             grad = torch.autograd.grad(
@@ -377,7 +385,7 @@ class DDIMSampler:
                     f"Guidance gradient is None. "
                     f"arc={loss_dict['arc_loss'].requires_grad}, "
                     f"seg={loss_dict['seg_loss'].requires_grad}, "
-                    f"patch={loss_dict['patch_loss'].requires_grad}, "
+                    f"hsi={loss_dict['hsi_loss'].requires_grad}, "
                     f"x_in.requires_grad={x_in.requires_grad}, "
                     f"total_loss.requires_grad={total_loss.requires_grad}"
                 )
@@ -387,7 +395,9 @@ class DDIMSampler:
             return e_t, (
                 loss_dict["arc_loss"],
                 loss_dict["seg_loss"],
-                loss_dict["patch_loss"],
+                loss_dict["hsi_loss"],
+                loss_dict["curv_loss"],
+                loss_dict["edge_loss"],
             )
             
     @torch.no_grad()
