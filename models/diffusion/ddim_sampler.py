@@ -345,65 +345,91 @@ class DDIMSampler:
         if self.guidance_controller is None:
             raise RuntimeError("guidance_controller must be provided for conditional guidance")
 
-        with torch.enable_grad():
-            x = x.detach().requires_grad_(True)
+        guidance_chunk = int(os.getenv("RG_GUIDANCE_CHUNK", "1"))
+        batch_size = x.shape[0]
 
-            e_t = self.model.apply_model(x, t, c)
-            pred_x0 = (x - sqrt_one_minus_at * e_t) / a_t.sqrt()
+        def _slice_conditioning(cond, start, end):
+            if cond is None:
+                return None
+            if isinstance(cond, dict):
+                out = {}
+                for k, v in cond.items():
+                    if torch.is_tensor(v):
+                        out[k] = v[start:end]
+                    elif isinstance(v, list):
+                        out[k] = [vv[start:end] if torch.is_tensor(vv) else vv for vv in v]
+                    else:
+                        out[k] = v
+                return out
+            if torch.is_tensor(cond):
+                return cond[start:end]
+            return cond
 
-            if quantize_denoised:
-                pred_x0, _, *_ = self.model.first_stage_model.quantize(pred_x0)
+        e_t_chunks = []
+        loss_keys = ["arc_loss", "seg_loss", "hsi_loss", "curv_loss", "edge_loss"]
+        loss_accum = {k: None for k in loss_keys}
 
-            fac = self.sqrt_one_minus_alphas_cumprod[t[0].item()]
-            x_in = pred_x0 * fac + x * (1 - fac)
-            x_in = self.model.decode_first_stage(x_in)
-            # print("decoded x_in requires_grad:", x_in.requires_grad)
+        for start in range(0, batch_size, guidance_chunk):
+            end = min(start + guidance_chunk, batch_size)
+            weight = float(end - start) / float(batch_size)
 
-            total_loss, loss_dict = self.guidance_controller.compute_losses(
-                x_in=x_in,
-                step=sample_step,
-            )
+            x_chunk = x[start:end].detach().requires_grad_(True)
+            t_chunk = t[start:end]
+            a_t_chunk = a_t[start:end]
+            sqrt_one_minus_at_chunk = sqrt_one_minus_at[start:end]
+            c_chunk = _slice_conditioning(c, start, end)
 
-            # Diagnostics
-            if not x.requires_grad:
-                raise RuntimeError("x does not require grad in cond_fn")
-            if not x_in.requires_grad:
-                raise RuntimeError("Decoded x_in is detached from graph")
-            if not total_loss.requires_grad:
-                raise RuntimeError(
-                    f"total_loss is detached. "
-                    f"arc={loss_dict['arc_loss'].requires_grad}, "
-                    f"seg={loss_dict['seg_loss'].requires_grad}, "
-                    f"hsi={loss_dict['hsi_loss'].requires_grad}"
+            with torch.enable_grad():
+                e_t_chunk = self.model.apply_model(x_chunk, t_chunk, c_chunk)
+                pred_x0_chunk = (x_chunk - sqrt_one_minus_at_chunk * e_t_chunk) / a_t_chunk.sqrt()
+
+                if quantize_denoised:
+                    pred_x0_chunk, _, *_ = self.model.first_stage_model.quantize(pred_x0_chunk)
+
+                fac = self.sqrt_one_minus_alphas_cumprod[t_chunk[0].item()]
+                x_in_chunk_latent = pred_x0_chunk * fac + x_chunk * (1 - fac)
+                x_in_chunk = self.model.decode_first_stage(x_in_chunk_latent)
+
+                total_loss_chunk, loss_dict_chunk = self.guidance_controller.compute_losses(
+                    x_in=x_in_chunk,
+                    step=sample_step,
                 )
 
-            grad = torch.autograd.grad(
-                total_loss,
-                x,
-                retain_graph=False,
-                create_graph=False,
-                allow_unused=True,
-            )[0]
+                grad_chunk = torch.autograd.grad(
+                    total_loss_chunk,
+                    x_chunk,
+                    retain_graph=False,
+                    create_graph=False,
+                    allow_unused=True,
+                )[0]
 
-            if grad is None:
-                raise RuntimeError(
-                    f"Guidance gradient is None. "
-                    f"arc={loss_dict['arc_loss'].requires_grad}, "
-                    f"seg={loss_dict['seg_loss'].requires_grad}, "
-                    f"hsi={loss_dict['hsi_loss'].requires_grad}, "
-                    f"x_in.requires_grad={x_in.requires_grad}, "
-                    f"total_loss.requires_grad={total_loss.requires_grad}"
-                )
+                if grad_chunk is None:
+                    raise RuntimeError("Guidance gradient is None for chunk")
 
-            e_t = e_t - sqrt_one_minus_at * grad
+                e_t_chunk = e_t_chunk - sqrt_one_minus_at_chunk * grad_chunk
 
-            return e_t, (
-                loss_dict["arc_loss"],
-                loss_dict["seg_loss"],
-                loss_dict["hsi_loss"],
-                loss_dict["curv_loss"],
-                loss_dict["edge_loss"],
-            )
+            e_t_chunks.append(e_t_chunk.detach())
+
+            for k in loss_keys:
+                val = loss_dict_chunk[k].detach() * weight
+                if loss_accum[k] is None:
+                    loss_accum[k] = val
+                else:
+                    loss_accum[k] = loss_accum[k] + val
+
+            del x_chunk, t_chunk, a_t_chunk, sqrt_one_minus_at_chunk, c_chunk
+            del e_t_chunk, pred_x0_chunk, x_in_chunk_latent, x_in_chunk, total_loss_chunk, loss_dict_chunk, grad_chunk
+            torch.cuda.empty_cache()
+
+        e_t = torch.cat(e_t_chunks, dim=0)
+
+        return e_t, (
+            loss_accum["arc_loss"],
+            loss_accum["seg_loss"],
+            loss_accum["hsi_loss"],
+            loss_accum["curv_loss"],
+            loss_accum["edge_loss"],
+        )
             
     @torch.no_grad()
     def p_sample_ddim(

@@ -51,6 +51,9 @@ def save_logs(
     if init_image_path is None or target_image_path is None:
         raise ValueError("init_image_path and target_image_path are required for saving outputs")
 
+    init_image_pil = Image.open(init_image_path).convert("RGB").resize((256, 256), Image.LANCZOS)
+    target_image_pil = Image.open(target_image_path).convert("RGB").resize((256, 256), Image.LANCZOS)
+
     pair_prefix = pair_prefix or _default_pair_prefix(init_image_path, target_image_path)
 
     if csv_file is not None:
@@ -58,14 +61,25 @@ def save_logs(
         csv_handle = open(csv_file, "a", newline="")
         writer = csv.writer(csv_handle)
         if not csv_exists:
-            writer.writerow(["source_image", "target_image", "sample_index", "output_image"])
+            writer.writerow([
+                "source_image",
+                "target_image",
+                "sample_index",
+                "combined_image",
+                "output_image",
+            ])
 
     batch = logs[key]
-
     for sample_idx, x in enumerate(batch):
         img = custom_to_pil(x)
-        img_filename = f"{pair_prefix}__s{sample_idx:02d}.png"
+
+        img_filename = f"{pair_prefix}__final__s{sample_idx:02d}.png"
+        combined_filename = f"{pair_prefix}__final__s{sample_idx:02d}__combined.png"
+
         imgpath = os.path.join(path, img_filename)
+        combined_path = os.path.join(path, combined_filename)
+
+        save_output_image(init_image_pil, target_image_pil, img, combined_path)
         img.save(imgpath)
 
         if csv_file is not None:
@@ -73,6 +87,7 @@ def save_logs(
                 os.path.abspath(init_image_path),
                 os.path.abspath(target_image_path),
                 sample_idx,
+                os.path.abspath(combined_path),
                 os.path.abspath(imgpath),
             ])
 

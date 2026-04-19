@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import sys
 import os
-from torchvision.utils import save_image
 
 ROOT = os.getcwd()
 sys.path.append(ROOT)
@@ -226,11 +225,11 @@ def build_output_dirs(
     sample_count: int = 1,
 ):
     if run_tests:
-        date_str = timestamp[:10]
-        run_logdir = os.path.join(base_logdir, "batch", date_str, timestamp)
+        run_logdir = os.path.join(base_logdir, "batch", timestamp)
     else:
         pair_name = build_pair_prefix(init_image_path, target_image_path)
-        run_logdir = os.path.join(base_logdir, "single", pair_name, f"n{sample_count:02d}")
+        pair_run_name = f"{pair_name}__{timestamp}"
+        run_logdir = os.path.join(base_logdir, "single", pair_run_name, f"n{sample_count:02d}")
 
     imglogdir = os.path.join(run_logdir, "img")
     numpylogdir = os.path.join(run_logdir, "numpy")
@@ -319,10 +318,9 @@ def run_single_sample(
     shape_str = "x".join([str(x) for x in all_img.shape])
     nppath = os.path.join(
         numpylogdir,
-        f"{pair_prefix}__n{sample_count:02d}__{shape_str}.npz",
+        f"{pair_prefix}__final__n{sample_count:02d}__{shape_str}.npz",
     )
     np.savez(nppath, all_img)
-    
 
     print(f"Saved {n_saved} sample(s) to {imglogdir}")
     print(f"Final guidance metric (cos_dist): {logs['cos_dist']}")
@@ -380,10 +378,6 @@ def run_batch_tests(
         
         print("mask:", mask.shape, mask.min().item(), mask.max().item(), torch.unique(mask))
         print("org_mask:", org_mask.shape, org_mask.min().item(), org_mask.max().item(), torch.unique(org_mask))
-
-        # Save first latent mask and org mask for visual inspection
-        save_image(mask[0], os.path.join(debug_dir, "02_latent_mask.png"))
-        save_image(org_mask, os.path.join(debug_dir, "03_org_mask.png"))
 
         pair_imglogdir = os.path.join(run_logdir, f"{i}", "img")
         pair_numpylogdir = os.path.join(run_logdir, f"{i}", "numpy")
@@ -484,30 +478,6 @@ def main():
 
     print("Reading source image -", opt.init_image)
     init_image = read_image(opt.init_image, device=model.device)
-    
-    # ---------------- AUTOENCODER ROUND-TRIP DEBUG ----------------
-    with torch.no_grad():
-        z = model.get_first_stage_encoding(model.encode_first_stage(init_image))
-        recon = model.decode_first_stage(z)
-
-    print("init_image", init_image.shape, init_image.min().item(), init_image.max().item(), init_image.mean().item())
-    print("z", z.shape, z.min().item(), z.max().item(), z.mean().item())
-    print("recon", recon.shape, recon.min().item(), recon.max().item(), recon.mean().item())
-
-    debug_dir = os.path.join(run_logdir, "debug")
-    os.makedirs(debug_dir, exist_ok=True)
-
-    save_image(((init_image.clamp(-1, 1) + 1) / 2), os.path.join(debug_dir, "00_init_image.png"))
-    save_image(((recon.clamp(-1, 1) + 1) / 2), os.path.join(debug_dir, "01_recon.png"))
-    # --------------------------------------------------------------
-    
-    with torch.no_grad():
-        z = model.get_first_stage_encoding(model.encode_first_stage(init_image))
-        recon = model.decode_first_stage(z)
-
-    print("init_image", init_image.shape, init_image.min().item(), init_image.max().item(), init_image.mean().item())
-    print("z", z.shape, z.min().item(), z.max().item(), z.mean().item())
-    print("recon", recon.shape, recon.min().item(), recon.max().item(), recon.mean().item())
 
     mask = None
     org_mask = None
