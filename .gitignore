@@ -1,2 +1,4 @@
 checkpoints/*
 !checkpoints/.gitkeep
+__pycache__/
+*.py[cod]

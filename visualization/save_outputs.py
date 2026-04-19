@@ -4,6 +4,10 @@ from PIL import Image, ImageDraw, ImageFont
 
 from utils.image_utils import custom_to_pil
 
+def _default_pair_prefix(init_image_path: str, target_image_path: str) -> str:
+    src_name = os.path.splitext(os.path.basename(init_image_path))[0]
+    tgt_name = os.path.splitext(os.path.basename(target_image_path))[0]
+    return f"{src_name}__{tgt_name}"
 
 def save_output_image(init_image_pil, target_image_pil, img, output_path):
     headings = ["Target Image", "Source Image", "Image"]
@@ -42,34 +46,33 @@ def save_logs(
     csv_file=None,
     init_image_path=None,
     target_image_path=None,
+    pair_prefix=None,
 ):
     if init_image_path is None or target_image_path is None:
         raise ValueError("init_image_path and target_image_path are required for saving outputs")
 
-    init_image_pil = Image.open(init_image_path).convert("RGB").resize((256, 256), Image.LANCZOS)
-    target_image_pil = Image.open(target_image_path).convert("RGB").resize((256, 256), Image.LANCZOS)
+    pair_prefix = pair_prefix or _default_pair_prefix(init_image_path, target_image_path)
 
     if csv_file is not None:
         csv_exists = os.path.isfile(csv_file)
         csv_handle = open(csv_file, "a", newline="")
         writer = csv.writer(csv_handle)
         if not csv_exists:
-            writer.writerow(["source_image", "target_image", "combined_image", "output_image"])
+            writer.writerow(["source_image", "target_image", "sample_index", "output_image"])
 
     batch = logs[key]
-    for x in batch:
-        img = custom_to_pil(x)
-        imgpath = os.path.join(path, f"{key}_{n_saved:06}.png")
-        combined_path = os.path.join(path, f"combined_{key}_{n_saved:06}.png")
 
-        save_output_image(init_image_pil, target_image_pil, img, combined_path)
+    for sample_idx, x in enumerate(batch):
+        img = custom_to_pil(x)
+        img_filename = f"{pair_prefix}__s{sample_idx:02d}.png"
+        imgpath = os.path.join(path, img_filename)
         img.save(imgpath)
 
         if csv_file is not None:
             writer.writerow([
                 os.path.abspath(init_image_path),
                 os.path.abspath(target_image_path),
-                os.path.abspath(combined_path),
+                sample_idx,
                 os.path.abspath(imgpath),
             ])
 

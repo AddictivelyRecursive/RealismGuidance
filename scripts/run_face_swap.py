@@ -183,6 +183,10 @@ def get_parser() -> argparse.ArgumentParser:
 
     return parser
 
+def build_pair_prefix(init_image_path: str, target_image_path: str) -> str:
+    src_name = os.path.splitext(os.path.basename(init_image_path))[0]
+    tgt_name = os.path.splitext(os.path.basename(target_image_path))[0]
+    return f"{src_name}__{tgt_name}"
 
 def resolve_resume_paths(resume_path: str):
     """
@@ -219,23 +223,19 @@ def build_output_dirs(
     run_tests: bool,
     init_image_path: Optional[str] = None,
     target_image_path: Optional[str] = None,
+    sample_count: int = 1,
 ):
-    date_str = timestamp[:10]
-
     if run_tests:
+        date_str = timestamp[:10]
         run_logdir = os.path.join(base_logdir, "batch", date_str, timestamp)
     else:
-        src_name = os.path.splitext(os.path.basename(init_image_path))[0]
-        tgt_name = os.path.splitext(os.path.basename(target_image_path))[0]
-        pair_name = f"{src_name}__{tgt_name}"
-        run_logdir = os.path.join(base_logdir, "single", date_str, pair_name, timestamp)
+        pair_name = build_pair_prefix(init_image_path, target_image_path)
+        run_logdir = os.path.join(base_logdir, "single", pair_name, f"n{sample_count:02d}")
 
     imglogdir = os.path.join(run_logdir, "img")
     numpylogdir = os.path.join(run_logdir, "numpy")
-
     os.makedirs(imglogdir, exist_ok=True)
     os.makedirs(numpylogdir, exist_ok=True)
-
     return run_logdir, imglogdir, numpylogdir
 
 
@@ -286,8 +286,10 @@ def run_single_sample(
     init_image_path: Optional[str] = None,
     csv_file: Optional[str] = None,
 ):
+    sample_count = int(opt.n_samples)
+
     logs = pipeline.sample(
-        batch_size=opt.batch_size,
+        batch_size=sample_count,
         steps=opt.custom_steps,
         eta=opt.eta,
         init_image=init_image,
@@ -297,9 +299,10 @@ def run_single_sample(
         run_tests=False,
     )
 
-    # add source image path for saving module
     logs["init_image_path"] = init_image_path
     logs["target_image_path"] = target_image_path
+
+    pair_prefix = build_pair_prefix(init_image_path, target_image_path)
 
     n_saved = save_logs(
         logs=logs,
@@ -309,13 +312,17 @@ def run_single_sample(
         csv_file=csv_file,
         init_image_path=init_image_path,
         target_image_path=target_image_path,
+        pair_prefix=pair_prefix,
     )
 
     all_img = custom_to_np(logs["sample"])
-    all_img = all_img[: opt.n_samples]
     shape_str = "x".join([str(x) for x in all_img.shape])
-    nppath = os.path.join(numpylogdir, f"{shape_str}-samples.npz")
+    nppath = os.path.join(
+        numpylogdir,
+        f"{pair_prefix}__n{sample_count:02d}__{shape_str}.npz",
+    )
     np.savez(nppath, all_img)
+    
 
     print(f"Saved {n_saved} sample(s) to {imglogdir}")
     print(f"Final guidance metric (cos_dist): {logs['cos_dist']}")
@@ -454,6 +461,7 @@ def main():
         run_tests=opt.run_tests,
         init_image_path=opt.init_image,
         target_image_path=opt.target_image,
+        sample_count=opt.n_samples if not opt.run_tests else opt.batch_size,
     )    
 
     print(run_logdir)

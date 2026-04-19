@@ -2,3 +2,5 @@ ssh athena
 source ~/anaconda3/etc/profile.d/conda.sh
 conda activate mehulenv
 cd mehul/RealismGuidance
+
+GIT_SSH_COMMAND="ssh -i /home/users/multicog/.ssh/id_ed25519_github_mehul -o IdentitiesOnly=yes" git fetch origin

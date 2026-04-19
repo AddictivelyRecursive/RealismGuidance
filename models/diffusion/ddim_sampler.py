@@ -242,8 +242,13 @@ class DDIMSampler:
 
             encoder_posterior = self.model.encode_first_stage(init_image)
             x0 = self.model.get_first_stage_encoding(encoder_posterior)
-            last_ts = torch.full((1,), time_range[0], device=device, dtype=torch.long)
-            x_T = torch.cat([self.model.q_sample(x0, last_ts) for _ in range(batch_size)])
+
+            if x0.shape[0] == 1 and batch_size > 1:
+                x0 = x0.repeat(batch_size, 1, 1, 1)
+
+            last_ts = torch.full((batch_size,), time_range[0], device=device, dtype=torch.long)
+            x_T = self.model.q_sample(x0, last_ts)
+
             img = x_T
         elif x_T is None:
             img = torch.randn(shape, device=device)
