@@ -10,7 +10,7 @@ def _default_pair_prefix(init_image_path: str, target_image_path: str) -> str:
     return f"{src_name}__{tgt_name}"
 
 def save_output_image(init_image_pil, target_image_pil, img, output_path):
-    headings = ["Target Image", "Source Image", "Image"]
+    headings = ["Target Image", "Source Image", "Swapped Image"]
     font = ImageFont.load_default()
 
     max_height = max(init_image_pil.height, target_image_pil.height, img.height)

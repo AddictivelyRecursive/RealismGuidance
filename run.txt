@@ -34,3 +34,47 @@ RG_ENABLE_ARC=1 RG_ENABLE_SEG=1 RG_ENABLE_PATCH=1 CUDA_VISIBLE_DEVICES="0" pytho
   --hsi_curv_coeff 1.0 \
   --hsi_edge_coeff 0.25 \
   --hsi_interval 1
+
+  CUDA_VISIBLE_DEVICES="0" python scripts/run_face_swap.py \
+  --resume "checkpoints/ldm_celeba256_model0.ckpt" \
+  --config "external/ldm/configs/latent-diffusion/celeba-ldm-vq-4.yaml" \
+  --run_tests \
+  --test_base_dir "." \
+  --batch_size 1 \
+  --custom_steps 50 \
+  --n_samples 8 \
+  --logdir "output" \
+  --vit_weight_path "checkpoints/ViT-face_webface_arcface_resnet18_gray_depth_1_head_2_lr_1e-5_fc1024_dropout_0_LFW-20250926T190632Z-1-001/best.pth" \
+  --face_parser_ckpt_path "checkpoints/79999_iter.pth" \
+  --mstpp_ckpt_path "checkpoints/mst_plus_plus.pth" \
+  --hsi_curv_coeff 1.0 \
+  --hsi_edge_coeff 0.25 \
+  --hsi_interval 1
+
+python evaluation/run_evaluation.py \
+  --csv output/checkpoints/batch/2026-04-21-23-23-20/generated_samples_paths.csv \
+  --output_dir evaluation/results/minimal_eval_01 \
+  --hopenet_ckpt checkpoints/hopenet/hopenet_robust_alpha1.pkl \
+  --mstpp_ckpt checkpoints/mst_plus_plus.pth \
+  --device cuda \
+  --musiq_device cpu \
+  --save_every 25
+
+  python evaluation/eval_id.py \
+  --csv output/checkpoints/batch/2026-04-21-23-23-20/generated_samples_paths.csv \
+  --output_dir evaluation/results/insight_retrieval_01 \
+  --save_every 50
+
+  python evaluation/run_evaluation.py \
+  --csv output/checkpoints/batch/2026-04-21-23-23-20/generated_samples_paths.csv \
+  --output_dir evaluation/results/minimal_eval_01 \
+  --hopenet_ckpt checkpoints/hopenet/hopenet_robust_alpha1.pkl \
+  --mstpp_ckpt checkpoints/mst_plus_plus.pth \
+  --device cuda \
+  --musiq_device cpu \
+  --save_every 25
+
+  python topk_id_similarity.py \
+    --csv output/checkpoints/batch/2026-04-21-23-23-20/generated_samples_paths.csv \
+    --ks 1,5,10 \
+    --out_dir ./eval_results

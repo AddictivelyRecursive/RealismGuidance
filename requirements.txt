@@ -10,6 +10,7 @@ conda install opencv
 conda install scipy
 conda install libstdcxx-ng
 pip install imutils
-
+pip install pandas scipy pillow pyiqa dlib opencv-python
+pip install insightface onnxruntime pandas tqdm pillow opencv-python
 cd external
 git clone https://github.com/CompVis/taming-transformers.git taming

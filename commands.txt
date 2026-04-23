@@ -4,3 +4,5 @@ conda activate mehulenv
 cd mehul/RealismGuidance
 
 git config --local core.sshCommand 'ssh -i /home/users/multicog/.ssh/id_ed25519_github_mehul -o IdentitiesOnly=yes'
+
+scp .\hopenet_robust_alpha1.pkl multicog@orthus.nic.uoregon.edu:/home/users/multicog/mehul/RealismGuidance/checkpoints/hopenet/

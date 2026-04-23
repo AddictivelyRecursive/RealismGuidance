@@ -187,6 +187,16 @@ def build_pair_prefix(init_image_path: str, target_image_path: str) -> str:
     tgt_name = os.path.splitext(os.path.basename(target_image_path))[0]
     return f"{src_name}__{tgt_name}"
 
+def build_batch_pair_dirs(run_logdir: str, source_path: str, target_path: str, sample_count: int):
+    pair_prefix = build_pair_prefix(source_path, target_path)
+    pair_runlogdir = os.path.join(run_logdir, pair_prefix, f"n{sample_count:02d}")
+    pair_imglogdir = os.path.join(pair_runlogdir, "img")
+    pair_numpylogdir = os.path.join(pair_runlogdir, "numpy")
+    os.makedirs(pair_imglogdir, exist_ok=True)
+    os.makedirs(pair_numpylogdir, exist_ok=True)
+    return pair_prefix, pair_runlogdir, pair_imglogdir, pair_numpylogdir
+
+
 def resolve_resume_paths(resume_path: str):
     """
     Resolve checkpoint path and corresponding logdir/config location.
@@ -284,6 +294,7 @@ def run_single_sample(
     target_image_path: str,
     init_image_path: Optional[str] = None,
     csv_file: Optional[str] = None,
+    run_tests: bool = False,
 ):
     sample_count = int(opt.n_samples)
 
@@ -295,7 +306,7 @@ def run_single_sample(
         mask=mask,
         org_mask=org_mask,
         target_image_path=target_image_path,
-        run_tests=False,
+        run_tests=run_tests,
     )
 
     logs["init_image_path"] = init_image_path
@@ -325,23 +336,12 @@ def run_single_sample(
     print(f"Saved {n_saved} sample(s) to {imglogdir}")
     print(f"Final guidance metric (cos_dist): {logs['cos_dist']}")
     print(f"Throughput: {logs['throughput']:.4f} samples/sec")
-
     return logs["cos_dist"]
 
 
-def run_batch_tests(
-    *,
-    model,
-    opt,
-    run_logdir: str,
-):
-    if opt.test_base_dir is None or opt.test_pairs_csv is None:
-        raise ValueError(
-            "Batch test mode requires --test_base_dir and --test_pairs_csv."
-        )
-
+def run_batch_tests(*, model, opt, run_logdir: str):
     base_dir = opt.test_base_dir
-    csv_path = opt.test_pairs_csv
+    csv_path = opt.test_pairs_csv or os.path.join(base_dir, "data", "image_pairs_with_masks.csv")
 
     source_dir = os.path.join(base_dir, "data/source")
     target_dir = os.path.join(base_dir, "data/target")
@@ -354,39 +354,36 @@ def run_batch_tests(
         csv_reader = csv.DictReader(csvfile)
         for row in csv_reader:
             merged_mask_path = os.path.join(base_dir, row["merged_mask"])
-            image_pairs.append(
-                (row["source_image"], row["target_image"], merged_mask_path)
-            )
+            image_pairs.append((row["source_image"], row["target_image"], merged_mask_path))
 
     total_cos_dist = 0.0
-
-    for i, (source_image, target_image, merged_mask) in enumerate(tqdm(image_pairs)):
+    for source_image, target_image, merged_mask in tqdm(image_pairs):
         source_path = os.path.join(source_dir, source_image)
         target_path = os.path.join(target_dir, target_image)
 
-        init_image = read_image(
-            source_path,
-            device=model.device,
-        )
-
+        init_image = read_image(source_path, device=model.device)
         mask, org_mask = read_mask(
             merged_mask,
             device=model.device,
             dilation_iterations=0,
             dest_size=(64, 64),
         )
-        
-        print("mask:", mask.shape, mask.min().item(), mask.max().item(), torch.unique(mask))
-        print("org_mask:", org_mask.shape, org_mask.min().item(), org_mask.max().item(), torch.unique(org_mask))
 
-        pair_imglogdir = os.path.join(run_logdir, f"{i}", "img")
-        pair_numpylogdir = os.path.join(run_logdir, f"{i}", "numpy")
-        os.makedirs(pair_imglogdir, exist_ok=True)
-        os.makedirs(pair_numpylogdir, exist_ok=True)
+        pair_prefix, pair_runlogdir, pair_imglogdir, pair_numpylogdir = build_batch_pair_dirs(
+            run_logdir=run_logdir,
+            source_path=source_path,
+            target_path=target_path,
+            sample_count=int(opt.n_samples),
+        )
 
-        pipeline = build_pipeline(model, opt, target_image_path=target_path,source_image_path=source_path)
+        pipeline = build_pipeline(
+            model=model,
+            opt=opt,
+            source_image_path=source_path,
+            target_image_path=target_path,
+        )
 
-        print(f"Running for {source_image} -> {target_image} (mask: {merged_mask})")
+        print(f"Running for {pair_prefix} (mask: {merged_mask})")
 
         cos_dist = run_single_sample(
             model=model,
@@ -400,8 +397,8 @@ def run_batch_tests(
             target_image_path=target_path,
             init_image_path=source_path,
             csv_file=csv_file_path,
+            run_tests=True,
         )
-
         total_cos_dist += float(cos_dist)
 
     avg_cos_dist = total_cos_dist / max(len(image_pairs), 1)

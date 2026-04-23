@@ -68,6 +68,38 @@ def build_guidance_controller(
         total_steps=total_steps,
     )
     
+def load_guidance_modules(*, device, vit_weight_path, face_parser_ckpt_path, mstpp_ckpt_path,
+                          hsi_curv_coeff=1.0, hsi_edge_coeff=0.25, hsi_interval=2,
+                          hsi_input_size=(128, 128)):
+    arcface_model = ViTWrapper(weight_path=vit_weight_path, device=device)
+    face_parser = FaceParser(face_parser_ckpt_path, device)
+    mstpp = FrozenMSTPlusPlus(
+        ckpt_path=mstpp_ckpt_path,
+        device=device,
+        input_size=hsi_input_size,
+    )
+    hsi_guidance = HSIGuidance(
+        mstpp=mstpp,
+        curv_coeff=hsi_curv_coeff,
+        edge_coeff=hsi_edge_coeff,
+        interval=hsi_interval,
+    )
+    return arcface_model, face_parser, hsi_guidance
+
+
+def build_guidance_controller_from_shared(*, arcface_model, face_parser, hsi_guidance,
+                                          source_image_path, target_image_path, total_steps=50):
+    target_embed = arcface_model.inference(source_image_path)
+    target_seg = face_parser.inference(target_image_path)
+    return GuidanceController(
+        arcface_model=arcface_model,
+        face_parser=face_parser,
+        hsi_guidance=hsi_guidance,
+        target_embed=target_embed,
+        target_seg=target_seg,
+        total_steps=total_steps,
+    )
+    
 # from __future__ import annotations
 
 # from types import SimpleNamespace
