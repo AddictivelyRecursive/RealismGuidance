@@ -2,3 +2,5 @@ checkpoints/*
 !checkpoints/.gitkeep
 __pycache__/
 *.py[cod]
+comparison_outputs
+output

@@ -231,6 +231,7 @@ class GuidanceController:
         curv_loss = x_in.new_tensor(0.0)
         edge_loss = x_in.new_tensor(0.0)
 
+        # keep these names for logging compatibility
         hsi_window_arc_loss = x_in.new_tensor(0.0)
         hsi_window_seg_loss = x_in.new_tensor(0.0)
 
@@ -239,15 +240,6 @@ class GuidanceController:
         arc_enabled = _env_bool("RG_ENABLE_ARC", "1")
         seg_enabled = _env_bool("RG_ENABLE_SEG", "1")
         hsi_enabled = _env_bool("RG_ENABLE_HSI", "1")
-
-        window_arc_enabled = _env_bool("RG_ENABLE_HSI_WINDOW_ARC", "0")
-        window_seg_enabled = _env_bool("RG_ENABLE_HSI_WINDOW_SEG", "0")
-
-        hsi_window_arc_weight = _env_float("RG_HSI_WINDOW_ARC_WEIGHT", 0.05)
-        hsi_window_seg_weight = _env_float("RG_HSI_WINDOW_SEG_WEIGHT", 0.05)
-
-        hsi_window_interval = _env_int("RG_HSI_WINDOW_INTERVAL", 1)
-        hsi_window_should_run = (step % max(1, hsi_window_interval)) == 0
 
         if not arc_enabled:
             arc_guidance = 0.0
@@ -258,69 +250,57 @@ class GuidanceController:
         if not hsi_enabled:
             hsi_guidance_weight = 0.0
 
-        if not window_arc_enabled:
-            hsi_window_arc_weight = 0.0
+        # normalize RGB decoded image into [0,1] for MST++ / HSI path
+        x_hsi = x_in
+        if x_hsi.min() < 0 or x_hsi.max() > 1:
+            x_hsi = (x_hsi + 1.0) / 2.0
+        x_hsi = x_hsi.clamp(0.0, 1.0)
 
-        if not window_seg_enabled:
-            hsi_window_seg_weight = 0.0
+        # We now use HSI-window guidance as the ID / Seg path.
+        # So if either arc or seg guidance is enabled, we need the HSI cube.
+        needs_hsi_cube = (arc_guidance > 0.0) or (seg_guidance > 0.0)
 
-        if not hsi_window_should_run:
-            hsi_window_arc_weight = 0.0
-            hsi_window_seg_weight = 0.0
-
-        needs_hsi_cube = (
-            hsi_guidance_weight > 0.0
-            or hsi_window_arc_weight > 0.0
-            or hsi_window_seg_weight > 0.0
-        )
-
-        # ---------------- RGB ArcFace loss ----------------
-        if arc_guidance > 0.0:
-            x_arc = self.arcface_model.arc_embedding(x_in)
-            arc_loss = d_loss(self.target_embed, x_arc, type="cosine")
-            total_loss = total_loss + arc_guidance * arc_loss
-
-        # ---------------- RGB Segmentation loss ----------------
-        if seg_guidance > 0.0:
-            x_seg = self.face_parser.segmentation_embedding(x_in)
-            seg_loss = d_loss(self.target_seg, x_seg, type="cosine")
-            total_loss = total_loss + seg_guidance * seg_loss
-
-        # ---------------- HSI reconstruction once ----------------
         hsi_cube = None
-
         if needs_hsi_cube:
             if self.hsi_guidance is None:
                 raise RuntimeError("HSI guidance module not initialized")
 
-            x_hsi = x_in
-
-            if x_hsi.min() < 0 or x_hsi.max() > 1:
-                x_hsi = (x_hsi + 1.0) / 2.0
-
-            x_hsi = x_hsi.clamp(0.0, 1.0)
-
             hsi_cube = self.hsi_guidance.reconstruct_hsi(x_hsi)
 
-        # ---------------- Existing HSI artifact loss ----------------
+        # ------------------------------------------------------------------
+        # ID / Seg guidance REPLACED by HSI-window guidance
+        # ------------------------------------------------------------------
+        if arc_guidance > 0.0 or seg_guidance > 0.0:
+            hsi_window_arc_loss, hsi_window_seg_loss = self._compute_hsi_window_losses(
+                hsi_cube=hsi_cube,
+                enable_window_arc=arc_guidance > 0.0,
+                enable_window_seg=seg_guidance > 0.0,
+            )
+
+            # use these as the actual arc/seg losses now
+            arc_loss = hsi_window_arc_loss
+            seg_loss = hsi_window_seg_loss
+
+            if arc_guidance > 0.0:
+                total_loss = total_loss + arc_guidance * arc_loss
+
+            if seg_guidance > 0.0:
+                total_loss = total_loss + seg_guidance * seg_loss
+
+        # ------------------------------------------------------------------
+        # HSI artifact guidance kept UNCHANGED:
+        # use original compute_hsi_loss(img, step) path so interval logic remains.
+        # ------------------------------------------------------------------
         if hsi_guidance_weight > 0.0:
-            hsi_loss, hsi_parts = self.hsi_guidance.compute_hsi_loss_from_cube(hsi_cube)
+            hsi_loss, hsi_parts = self.hsi_guidance.compute_hsi_loss(
+                img=x_hsi,
+                step=step,
+            )
 
             curv_loss = hsi_parts["curv_loss"]
             edge_loss = hsi_parts["edge_loss"]
 
             total_loss = total_loss + hsi_guidance_weight * hsi_loss
-
-        # ---------------- Experimental HSI-window Arc/Seg loss ----------------
-        if hsi_window_arc_weight > 0.0 or hsi_window_seg_weight > 0.0:
-            hsi_window_arc_loss, hsi_window_seg_loss = self._compute_hsi_window_losses(
-                hsi_cube=hsi_cube,
-                enable_window_arc=hsi_window_arc_weight > 0.0,
-                enable_window_seg=hsi_window_seg_weight > 0.0,
-            )
-
-            total_loss = total_loss + hsi_window_arc_weight * hsi_window_arc_loss
-            total_loss = total_loss + hsi_window_seg_weight * hsi_window_seg_loss
 
         loss_dict = {
             "arc_loss": arc_loss,
@@ -333,8 +313,10 @@ class GuidanceController:
             "arc_weight": torch.tensor(arc_guidance, device=device),
             "seg_weight": torch.tensor(seg_guidance, device=device),
             "hsi_weight": torch.tensor(hsi_guidance_weight, device=device),
-            "hsi_window_arc_weight": torch.tensor(hsi_window_arc_weight, device=device),
-            "hsi_window_seg_weight": torch.tensor(hsi_window_seg_weight, device=device),
+
+            # kept for logging compatibility
+            "hsi_window_arc_weight": torch.tensor(arc_guidance, device=device),
+            "hsi_window_seg_weight": torch.tensor(seg_guidance, device=device),
         }
 
         return total_loss, loss_dict
