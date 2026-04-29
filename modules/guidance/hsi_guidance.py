@@ -8,14 +8,13 @@ import torch.nn.functional as F
 
 from external.MST_plus_plus.train_code.architecture.MST_Plus_Plus import MST_Plus_Plus
 
+
 class FrozenMSTPlusPlus(nn.Module):
     """
     Frozen RGB -> HSI reconstructor using official MST++ weights.
 
-    Important:
-    - Parameters are frozen.
-    - We DO NOT wrap forward in torch.no_grad(), because we still need
-      gradients to flow from the HSI loss back to the input image.
+    Parameters are frozen, but the forward pass remains differentiable.
+    This allows gradients from HSI-space losses to flow back to the RGB image.
     """
 
     def __init__(
@@ -26,6 +25,7 @@ class FrozenMSTPlusPlus(nn.Module):
         samplewise_minmax: bool = True,
     ):
         super().__init__()
+
         self.device = device
         self.input_size = input_size
         self.samplewise_minmax = samplewise_minmax
@@ -34,10 +34,7 @@ class FrozenMSTPlusPlus(nn.Module):
 
         checkpoint = torch.load(ckpt_path, map_location=device)
         state_dict = checkpoint.get("state_dict", checkpoint)
-        state_dict = {
-            k.replace("module.", ""): v
-            for k, v in state_dict.items()
-        }
+        state_dict = {k.replace("module.", ""): v for k, v in state_dict.items()}
 
         model.load_state_dict(state_dict, strict=True)
         model.eval()
@@ -48,11 +45,6 @@ class FrozenMSTPlusPlus(nn.Module):
         self.model = model
 
     def _normalize_rgb(self, x: torch.Tensor) -> torch.Tensor:
-        """
-        Official MST++ test code normalizes RGB into [0,1].
-        Since our decoded image is already clamped into [0,1],
-        this mainly adds optional sample-wise min/max stabilization.
-        """
         x = x.clamp(0.0, 1.0)
 
         if not self.samplewise_minmax:
@@ -60,56 +52,64 @@ class FrozenMSTPlusPlus(nn.Module):
 
         b = x.shape[0]
         flat = x.view(b, -1)
+
         x_min = flat.min(dim=1)[0].view(b, 1, 1, 1)
         x_max = flat.max(dim=1)[0].view(b, 1, 1, 1)
+
         return (x - x_min) / (x_max - x_min + 1e-6)
 
     def forward(self, img_rgb: torch.Tensor) -> torch.Tensor:
         """
-        img_rgb: [B, 3, H, W] in [0,1]
-        returns: [B, 31, H', W'] HSI cube
+        Args:
+            img_rgb: [B, 3, H, W], expected in [0, 1]
+
+        Returns:
+            hsi: [B, 31, H_hsi, W_hsi]
         """
         x = img_rgb.to(self.device)
+
         x = F.interpolate(
             x,
             size=self.input_size,
             mode="bilinear",
             align_corners=False,
         )
+
         x = self._normalize_rgb(x)
+
         hsi = self.model(x)
+
         return hsi
 
 
 def spectral_curvature_loss(hsi: torch.Tensor) -> torch.Tensor:
     """
-    L_curv:
-    second difference along spectral dimension.
+    Curvature loss over adjacent spectral bands.
 
-    hsi: [B, C, H, W]
+    Args:
+        hsi: [B, C, H, W]
     """
     if hsi.shape[1] < 3:
         return hsi.new_tensor(0.0)
 
     d2 = hsi[:, 2:, :, :] - 2.0 * hsi[:, 1:-1, :, :] + hsi[:, :-2, :, :]
+
     return d2.abs().mean()
 
 
 def interband_edge_consistency_loss(hsi: torch.Tensor) -> torch.Tensor:
     """
-    L_edge:
-    consistency of spatial gradients across adjacent spectral bands.
+    Edge consistency loss over adjacent spectral bands.
 
-    hsi: [B, C, H, W]
+    Args:
+        hsi: [B, C, H, W]
     """
     if hsi.shape[1] < 2:
         return hsi.new_tensor(0.0)
 
-    # Spatial gradients per band
-    dx = hsi[:, :, :, 1:] - hsi[:, :, :, :-1]   # [B, C, H, W-1]
-    dy = hsi[:, :, 1:, :] - hsi[:, :, :-1, :]   # [B, C, H-1, W]
+    dx = hsi[:, :, :, 1:] - hsi[:, :, :, :-1]
+    dy = hsi[:, :, 1:, :] - hsi[:, :, :-1, :]
 
-    # Compare gradients between adjacent spectral bands
     edge_x = dx[:, 1:, :, :] - dx[:, :-1, :, :]
     edge_y = dy[:, 1:, :, :] - dy[:, :-1, :, :]
 
@@ -118,8 +118,12 @@ def interband_edge_consistency_loss(hsi: torch.Tensor) -> torch.Tensor:
 
 class HSIGuidance:
     """
-    Computes training-free HSI artifact energy:
-        hsi_loss = curv_coeff * L_curv + edge_coeff * L_edge
+    HSI guidance module.
+
+    Provides:
+    1. MST++ RGB-to-HSI reconstruction.
+    2. Existing HSI artifact loss.
+    3. HSI cube access for experimental spectral-window guidance.
     """
 
     def __init__(
@@ -134,23 +138,29 @@ class HSIGuidance:
         self.edge_coeff = edge_coeff
         self.interval = max(1, int(interval))
 
-    def compute_hsi_loss(
+    def should_run(self, step: Optional[int] = None) -> bool:
+        if step is None:
+            return True
+
+        if self.interval <= 1:
+            return True
+
+        return (step % self.interval) == 0
+
+    def reconstruct_hsi(self, img: torch.Tensor) -> torch.Tensor:
+        """
+        Args:
+            img: [B, 3, H, W], expected in [0, 1]
+
+        Returns:
+            hsi: [B, 31, H_hsi, W_hsi]
+        """
+        return self.mstpp(img)
+
+    def compute_hsi_loss_from_cube(
         self,
-        img: torch.Tensor,
-        step: Optional[int] = None,
+        hsi: torch.Tensor,
     ) -> tuple[torch.Tensor, Dict[str, torch.Tensor]]:
-        zero = img.new_tensor(0.0)
-
-        # Skip some steps to reduce compute.
-        if step is not None and self.interval > 1 and (step % self.interval) != 0:
-            return zero, {
-                "curv_loss": zero,
-                "edge_loss": zero,
-                "hsi_loss": zero,
-            }
-
-        hsi = self.mstpp(img)  # [B, 31, H, W]
-
         curv_loss = spectral_curvature_loss(hsi)
         edge_loss = interband_edge_consistency_loss(hsi)
 
@@ -161,3 +171,21 @@ class HSIGuidance:
             "edge_loss": edge_loss,
             "hsi_loss": hsi_loss,
         }
+
+    def compute_hsi_loss(
+        self,
+        img: torch.Tensor,
+        step: Optional[int] = None,
+    ) -> tuple[torch.Tensor, Dict[str, torch.Tensor]]:
+        zero = img.new_tensor(0.0)
+
+        if not self.should_run(step):
+            return zero, {
+                "curv_loss": zero,
+                "edge_loss": zero,
+                "hsi_loss": zero,
+            }
+
+        hsi = self.reconstruct_hsi(img)
+
+        return self.compute_hsi_loss_from_cube(hsi)
