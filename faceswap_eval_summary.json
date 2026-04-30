@@ -1,0 +1,23 @@
+{
+  "pairs_evaluated": 97,
+  "pairs_total": 97,
+  "max_pose_deg": 90.0,
+  "pose_error_norm": {
+    "mean": 0.2273,
+    "std": 0.313,
+    "min": 0.0235,
+    "max": 1.0
+  },
+  "expression_sim": {
+    "mean": 0.9888,
+    "std": 0.0155,
+    "min": 0.8889,
+    "max": 0.9992
+  },
+  "id_similarity": {
+    "mean": 0.4208,
+    "std": 0.1574,
+    "min": 0.1475,
+    "max": 0.8111
+  }
+}

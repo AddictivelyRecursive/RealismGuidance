@@ -29,6 +29,16 @@ from ldm.modules.diffusionmodules.util import (
     noise_like,
 )
 
+def is_guidance_enabled():
+    if bool(int(os.environ.get("RG_DISABLE_GUIDANCE", "0"))):
+        return False
+
+    use_arc = bool(int(os.environ.get("RG_ENABLE_ARC", "1")))
+    use_seg = bool(int(os.environ.get("RG_ENABLE_SEG", "1")))
+    use_hsi = bool(int(os.environ.get("RG_ENABLE_HSI", "1")))
+
+    return use_arc or use_seg or use_hsi
+
 
 class DDIMSampler:
     def __init__(
@@ -453,7 +463,13 @@ class DDIMSampler:
         import os
 
         batch_size, *_, device = *x.shape, x.device
-        conditional_guidance = os.getenv("RG_DISABLE_GUIDANCE", "0") != "1"
+
+        guidance_disabled = os.getenv("RG_DISABLE_GUIDANCE", "0") == "1"
+        use_arc = os.getenv("RG_ENABLE_ARC", "1") == "1"
+        use_seg = os.getenv("RG_ENABLE_SEG", "1") == "1"
+        use_hsi = os.getenv("RG_ENABLE_HSI", "1") == "1"
+
+        conditional_guidance = (not guidance_disabled) and (use_arc or use_seg or use_hsi)
 
         alphas = self.model.alphas_cumprod if use_original_steps else self.ddim_alphas
         alphas_prev = (
@@ -498,9 +514,11 @@ class DDIMSampler:
                 e_t = e_t_uncond + unconditional_guidance_scale * (e_t - e_t_uncond)
 
             loss = (
-                torch.tensor(0.0, device=device),
-                torch.tensor(0.0, device=device),
-                torch.tensor(0.0, device=device),
+                torch.tensor(0.0, device=device),  # Arc
+                torch.tensor(0.0, device=device),  # Seg
+                torch.tensor(0.0, device=device),  # HSI
+                torch.tensor(0.0, device=device),  # Curv
+                torch.tensor(0.0, device=device),  # Edge
             )
 
         pred_x0 = (x - sqrt_one_minus_at * e_t) / a_t.sqrt()
@@ -513,4 +531,3 @@ class DDIMSampler:
         x_prev = a_prev.sqrt() * pred_x0 + dir_xt + noise * sigma_t
 
         return x_prev, pred_x0, loss
-    

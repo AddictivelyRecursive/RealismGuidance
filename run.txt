@@ -35,7 +35,7 @@ RG_ENABLE_ARC=1 RG_ENABLE_SEG=1 RG_ENABLE_PATCH=1 CUDA_VISIBLE_DEVICES="0" pytho
   --hsi_edge_coeff 0.25 \
   --hsi_interval 1
 
-  CUDA_VISIBLE_DEVICES="0" python scripts/run_face_swap.py \
+  RG_ENABLE_ARC=0 RG_ENABLE_SEG=1 RG_ENABLE_HSI=1 CUDA_VISIBLE_DEVICES="1" python scripts/run_face_swap.py \
   --resume "checkpoints/ldm_celeba256_model0.ckpt" \
   --config "external/ldm/configs/latent-diffusion/celeba-ldm-vq-4.yaml" \
   --run_tests \
@@ -78,3 +78,33 @@ python evaluation/run_evaluation.py \
     --csv output/checkpoints/batch/2026-04-21-23-23-20/generated_samples_paths.csv \
     --ks 1,5,10 \
     --out_dir ./eval_results
+
+RG_ENABLE_ARC=1 \
+RG_ENABLE_SEG=1 \
+RG_ENABLE_HSI=1 \
+RG_HSI_WINDOW_SIZE=3 \
+RG_HSI_WINDOW_STRIDE=1 \
+RG_HSI_WINDOW_AGG=mean \
+CUDA_VISIBLE_DEVICES="2" python scripts/run_face_swap.py \
+  --resume "checkpoints/ldm_celeba256_model0.ckpt" \
+  --config "external/ldm/configs/latent-diffusion/celeba-ldm-vq-4.yaml" \
+  --run_tests \
+  --test_base_dir "." \
+  --batch_size 1 \
+  --custom_steps 50 \
+  --n_samples 8 \
+  --logdir "output" \
+  --vit_weight_path "checkpoints/ViT-face_webface_arcface_resnet18_gray_depth_1_head_2_lr_1e-5_fc1024_dropout_0_LFW-20250926T190632Z-1-001/best.pth" \
+  --face_parser_ckpt_path "checkpoints/79999_iter.pth" \
+  --mstpp_ckpt_path "checkpoints/mst_plus_plus.pth" \
+  --hsi_curv_coeff 1.0 \
+  --hsi_edge_coeff 0.25 \
+  --hsi_interval 1
+
+  python -m evaluation.pose_expr_id output/checkpoints/batch/2026-04-30-04-10-15/generated_samples_paths.csv \
+  --source-col source_image \
+  --target-col target_image \
+  --output-col output_image \
+  --out results_output.csv
+
+  RG_ENABLE_ARC=0 RG_ENABLE_SEG=0 RG_ENABLE_HSI=0 CUDA_VISIBLE_DEVICES="2" python scripts/run_face_swap.py   --resume "checkpoints/ldm_celeba256_model0.ckpt"   --config "external/ldm/configs/latent-diffusion/celeba-ldm-vq-4.yaml"   --run_tests   --test_base_dir "."   --batch_size 1   --custom_steps 50   --n_samples 8   --logdir "output"   --vit_weight_path "checkpoints/ViT-face_webface_arcface_resnet18_gray_depth_1_head_2_lr_1e-5_fc1024_dropout_0_LFW-20250926T190632Z-1-001/best.pth"   --face_parser_ckpt_path "checkpoints/79999_iter.pth"   --mstpp_ckpt_path "checkpoints/mst_plus_plus.pth"   --hsi_curv_coeff 1.0   --hsi_edge_coeff 0.25   --hsi_interval 1
